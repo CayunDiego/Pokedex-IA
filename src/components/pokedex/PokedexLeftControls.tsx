@@ -3,8 +3,13 @@
 
 import React from 'react';
 import DPad from './DPad';
+import type { PokemonDisplayData } from './PokedexShell';
 
-export function PokedexLeftControls() {
+interface PokedexLeftControlsProps {
+  pokemonData: PokemonDisplayData | null;
+}
+
+export function PokedexLeftControls({ pokemonData }: PokedexLeftControlsProps) {
   return (
     <div className="flex-shrink-0 grid grid-cols-[auto_1fr_1fr] items-center gap-x-6 pb-2 pt-8">
 
@@ -25,12 +30,25 @@ export function PokedexLeftControls() {
           <button className="w-10 h-3.5 bg-blue-500 rounded-sm border-[1px] border-blue-700/80 shadow-[2px_2px_1px_#00000050] active:shadow-[inset_1px_1px_4px_#00000090] active:translate-y-[2px] transition duration-100"></button>
         </div>
         {/* Green Rectangle Screen */}
-        <div className="w-full aspect-[4/3] bg-green-500 rounded-md border-2 border-green-700/80 custom-green-screen-shadow"></div>
+        <div className="w-full aspect-[4/3] bg-green-500 rounded-md border-2 border-green-700/80 custom-green-screen-shadow flex flex-col items-center justify-center p-1 overflow-hidden">
+          {pokemonData && pokemonData.isPokemon && pokemonData.name && pokemonData.id !== undefined ? (
+            <>
+              <p className="font-display text-yellow-300 text-xs leading-none mb-0.5 text-center break-all">
+                {pokemonData.name.toUpperCase()}
+              </p>
+              <p className="font-display text-yellow-300 text-lg leading-none text-center">
+                #{String(pokemonData.id).padStart(3, '0')}
+              </p>
+            </>
+          ) : (
+            <p className="font-display text-yellow-400/70 text-sm">---</p> 
+          )}
+        </div>
       </div>
 
       {/* Column 3: D-pad */}
-      <div className="flex justify-center items-end h-full"> {/* Contenedor para centrar el DPad */}
-        <DPad responsive /> {/* Usando el nuevo DPad con un tamaño de 96px */}
+      <div className="flex justify-center items-end h-full"> 
+        <DPad responsive /> 
       </div>
     </div>
   );

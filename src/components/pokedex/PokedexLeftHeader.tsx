@@ -2,14 +2,22 @@
 "use client";
 
 import React from 'react';
+import { cn } from "@/lib/utils";
 
-export function PokedexLeftHeader() {
+interface PokedexLeftHeaderProps {
+  isSpeaking?: boolean; 
+}
+
+export function PokedexLeftHeader({ isSpeaking }: PokedexLeftHeaderProps) {
   return (
     <div className="relative flex-shrink-0">
       <div className="p-2.5 w-full h-[116px] flex relative z-[100]">
         
         {/* Big Blue Light (Lens) */}
-        <div className="relative w-16 h-16 bg-sky-400 rounded-full border-4 border-white flex items-center justify-center shadow-lg mr-2">
+        <div className={cn(
+          "relative w-16 h-16 bg-sky-400 rounded-full border-4 border-white flex items-center justify-center shadow-lg mr-2",
+          isSpeaking && "animate-glow-blue-light"
+        )}>
           {/* Crystal ball effect */}
           <div className="absolute inset-0 rounded-full overflow-hidden">
             <div className="w-full h-full bg-gradient-radial from-sky-200/70 via-sky-400/50 to-sky-600/80 opacity-70"></div>
@@ -19,10 +27,31 @@ export function PokedexLeftHeader() {
         </div>
 
         {/* Small Lights Container - Aligned with the top of the blue light via parent's items-start */}
-        <div className="flex gap-2 mt-1"> {/* mt-1 to visually align better due to border thickness */}
-          <div className="w-5 h-5 bg-red-400 rounded-full border-2 border-red-500 shadow-sm"></div>
-          <div className="w-5 h-5 bg-yellow-400 rounded-full border-2 border-yellow-500 shadow-sm"></div>
-          <div className="w-5 h-5 bg-green-400 rounded-full border-2 border-green-500 shadow-sm"></div>
+        <div className="flex gap-2 mt-1">
+          {/* Red Light */}
+          <div className="relative w-5 h-5 bg-red-400 rounded-full border-2 border-red-500 shadow-sm overflow-hidden">
+            <div className="absolute inset-0 rounded-full">
+              <div className="w-full h-full bg-gradient-radial from-red-200/70 via-red-400/50 to-red-600/80 opacity-70 rounded-full"></div>
+              <div className="absolute top-[1px] left-[2px] w-2 h-2 bg-white/50 rounded-full blur-sm"></div>
+              <div className="absolute top-[2px] left-[4px] w-1 h-1 bg-white/70 rounded-full"></div>
+            </div>
+          </div>
+          {/* Yellow Light */}
+          <div className="relative w-5 h-5 bg-yellow-400 rounded-full border-2 border-yellow-500 shadow-sm overflow-hidden">
+            <div className="absolute inset-0 rounded-full">
+              <div className="w-full h-full bg-gradient-radial from-yellow-200/70 via-yellow-400/50 to-yellow-600/80 opacity-70 rounded-full"></div>
+              <div className="absolute top-[1px] left-[2px] w-2 h-2 bg-white/50 rounded-full blur-sm"></div>
+              <div className="absolute top-[2px] left-[4px] w-1 h-1 bg-white/70 rounded-full"></div>
+            </div>
+          </div>
+          {/* Green Light */}
+          <div className="relative w-5 h-5 bg-green-400 rounded-full border-2 border-green-500 shadow-sm overflow-hidden">
+            <div className="absolute inset-0 rounded-full">
+              <div className="w-full h-full bg-gradient-radial from-green-200/70 via-green-400/50 to-green-600/80 opacity-70 rounded-full"></div>
+              <div className="absolute top-[1px] left-[2px] w-2 h-2 bg-white/50 rounded-full blur-sm"></div>
+              <div className="absolute top-[2px] left-[4px] w-1 h-1 bg-white/70 rounded-full"></div>
+            </div>
+          </div>
         </div>
       </div>
       {/* Curvas superpuestas */}

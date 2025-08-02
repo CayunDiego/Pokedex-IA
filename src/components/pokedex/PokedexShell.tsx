@@ -1,220 +1,305 @@
 
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useOrientation, type Orientation as OrientationType } from "@/hooks/useOrientation";
 import { PokedexClosedView } from "./PokedexClosedView";
 import { PokedexOpenView, type PokemonData as PokedexOpenViewPokemonData } from "./PokedexOpenView";
 import { identifyPokemon, type IdentifyPokemonOutput } from "@/ai/flows/identify-pokemon";
 import { summarizePokemonInfo, type SummarizePokemonInfoOutput } from "@/ai/flows/summarize-pokemon-info";
-import { useToast } from "@/hooks/use-toast";
 
-// Ámbito del módulo para las voces y su función de actualización
 let synthVoices: SpeechSynthesisVoice[] = [];
 
 function updateVoices() {
   if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
     synthVoices = window.speechSynthesis.getVoices();
-    // console.log("Voces de SpeechSynthesis actualizadas:", synthVoices.map(v => ({name: v.name, lang: v.lang})));
   }
 }
-
-// Web Speech API function
-function speak(text: string) {
-  if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-    // Si las voces aún no se han cargado (por ejemplo, si speak se llama antes de que onvoiceschanged se dispare la primera vez)
-    if (synthVoices.length === 0) {
-        updateVoices(); 
-        if (synthVoices.length === 0) {
-            console.warn("La lista de voces sigue vacía después de un segundo intento de actualizar. El primer habla podría usar la voz predeterminada del navegador.");
-        }
-    }
-    // console.log("Intentando hablar:", `"${text}"`);
-    // console.log("Voces disponibles al momento de hablar:", synthVoices.map(v => ({name: v.name, lang: v.lang, default: v.default})));
-
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = 'es-ES'; 
-    utterance.pitch = 2.0;
-    utterance.rate = 1.3;
-    utterance.volume = 1;
-
-    const monicaVoice = synthVoices.find(v => v.lang.startsWith('es') && v.name.toLowerCase().includes('monica'));
-    const spanishVoice = synthVoices.find(v => v.lang.startsWith('es'));
-
-    if (monicaVoice) {
-      utterance.voice = monicaVoice;
-      // console.log("Usando voz Monica:", monicaVoice.name);
-    } else if (spanishVoice) {
-      utterance.voice = spanishVoice;
-      // console.log("Voz Monica no encontrada. Usando voz española por defecto:", spanishVoice.name);
-    } else {
-      // console.warn("No se encontró voz 'Monica' ni otra voz en español. Usando voz predeterminada para el idioma del sistema.");
-    }
-    
-    utterance.onstart = () => {
-        // console.log("Reproducción de voz iniciada para:", `"${text}"`);
-    };
-    utterance.onend = () => {
-        // console.log("Reproducción de voz finalizada para:", `"${text}"`);
-    };
-    utterance.onerror = (event) => {
-        // No registrar "interrupted" como un error crítico, ya que es esperado cuando cancelamos una locución.
-        if (event.error === "interrupted") {
-          // Opcional: console.info(`Speech synthesis interrupted for "${text}" (expected).`);
-          return;
-        }
-        console.error(`Error en Web Speech API al intentar hablar "${text}":`, event.error, event);
-        // Podríamos agregar un toast aquí si el error es informativo para el usuario.
-    };
-    
-    // Cancelar cualquier habla anterior para evitar colas o errores si el usuario hace clic rápido.
-    window.speechSynthesis.cancel(); 
-    window.speechSynthesis.speak(utterance);
-
-  } else {
-    console.warn("Web Speech API no está disponible en este navegador.");
-  }
-}
-
 
 export interface PokemonDisplayData {
   isPokemon: boolean;
   name?: string;
+  id?: number;
   confidence: number;
-  pokemonType?: string[];
+  pokemonType?: string[]; // Original type names from identifyPokemon
   generation?: string;
   description?: string;
-  summary?: string; 
+  summary?: string;
+  spriteUrl?: string;
+  height?: number;
+  weight?: number;
+  typeDetails?: { name: string; iconUrl: string }[]; // For type names and their icons
+  stats?: { name: string; base_stat: number }[];
 }
+
+const MIN_POKEBALL_ANIMATION_MS = 5130;
 
 export function PokedexShell() {
   const orientation: OrientationType = useOrientation();
   const [capturedImageUri, setCapturedImageUri] = useState<string | null>(null);
   const [pokemonData, setPokemonData] = useState<PokemonDisplayData | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isApiLoading, setIsApiLoading] = useState(false);
+  const [showPokeballAnimation, setShowPokeballAnimation] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [identifyAfterCapture, setIdentifyAfterCapture] = useState(false);
-  const { toast } = useToast();
+  const [isSpeaking, setIsSpeaking] = useState(false);
+
+  const animationTimeoutIdRef = useRef<NodeJS.Timeout | null>(null);
+  const identifyCallRef = useRef(0);
+
+  const speak = useCallback((text: string) => {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      if (synthVoices.length === 0) {
+          updateVoices();
+      }
+
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = 'es-ES';
+      utterance.pitch = 2.0;
+      utterance.rate = 1.3;
+      utterance.volume = 1;
+
+      const monicaVoice = synthVoices.find(v => v.lang.startsWith('es') && v.name.toLowerCase().includes('monica'));
+      const spanishVoice = synthVoices.find(v => v.lang.startsWith('es'));
+
+      if (monicaVoice) {
+        utterance.voice = monicaVoice;
+      } else if (spanishVoice) {
+        utterance.voice = spanishVoice;
+      }
+
+      utterance.onstart = () => {
+          setIsSpeaking(true);
+      };
+      utterance.onend = () => {
+          setIsSpeaking(false);
+      };
+      utterance.onerror = (event) => {
+          console.error(`Web Speech API error for "${text}": ${event.error}`);
+          setIsSpeaking(false);
+      };
+
+      window.speechSynthesis.cancel();
+      try {
+        window.speechSynthesis.speak(utterance);
+      } catch (e) {
+        console.error("Error calling speechSynthesis.speak:", e);
+        setIsSpeaking(false);
+      }
+    } else {
+      console.warn("Web Speech API is not available in this browser.");
+      setIsSpeaking(false);
+    }
+  }, [setIsSpeaking]);
 
   useEffect(() => {
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      // Cargar voces inicialmente. Es importante hacerlo antes de que onvoiceschanged se dispare la primera vez.
       updateVoices();
-      
-      // Suscribirse a cambios en las voces disponibles
       window.speechSynthesis.onvoiceschanged = updateVoices;
-
-      return () => {
-        // Limpiar el listener cuando el componente se desmonte
-        if (window.speechSynthesis) {
-            window.speechSynthesis.onvoiceschanged = null;
-            window.speechSynthesis.cancel(); // Cancelar cualquier habla pendiente al desmontar
-        }
-      };
     }
-  }, []); 
-
-
-  const handleImageCapture = useCallback((dataUri: string) => {
-    setCapturedImageUri(dataUri);
-    setPokemonData(null); 
-    setError(null);
-    setIdentifyAfterCapture(true); // Indicate that identification should occur
+    return () => {
+      if (typeof window !== 'undefined' && window.speechSynthesis) {
+          window.speechSynthesis.onvoiceschanged = null;
+          window.speechSynthesis.cancel();
+      }
+      if (animationTimeoutIdRef.current) {
+        clearTimeout(animationTimeoutIdRef.current);
+      }
+    };
   }, []);
 
   const clearCapturedImage = useCallback(() => {
     setCapturedImageUri(null);
     setPokemonData(null);
     setError(null);
-    setIdentifyAfterCapture(false); // Reset trigger if image is cleared
-  }, []);
+    setShowPokeballAnimation(false);
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
+    setIsSpeaking(false);
+    if (animationTimeoutIdRef.current) {
+      clearTimeout(animationTimeoutIdRef.current);
+      animationTimeoutIdRef.current = null;
+    }
+    identifyCallRef.current = 0;
+  }, [setIsSpeaking]);
 
-  const handleIdentify = useCallback(async () => {
-    if (!capturedImageUri) {
-      toast({ title: "Error", description: "No image captured.", variant: "destructive" });
+  const handleImageCapture = useCallback((dataUri: string) => {
+    clearCapturedImage();
+    setCapturedImageUri(dataUri);
+
+    setShowPokeballAnimation(true);
+    if (animationTimeoutIdRef.current) {
+      clearTimeout(animationTimeoutIdRef.current);
+    }
+    animationTimeoutIdRef.current = setTimeout(() => {
+      setShowPokeballAnimation(false);
+      animationTimeoutIdRef.current = null;
+    }, MIN_POKEBALL_ANIMATION_MS);
+
+    identifyCallRef.current += 1;
+  }, [clearCapturedImage]);
+
+
+  const handleIdentify = useCallback(async (currentCapturedImageUri: string) => {
+    if (!currentCapturedImageUri) {
+      setError("Error: No image captured for identification.");
       return;
     }
 
-    setIsLoading(true);
+    setIsApiLoading(true);
     setError(null);
-    // No resetear pokemonData aquí para que la información anterior se mantenga visible mientras carga la nueva
-    // setPokemonData(null); 
+
+    let identificationResult: IdentifyPokemonOutput | null = null;
+    let pokemonIdToSet: number | undefined = undefined;
+    let pokemonHeightToSet: number | undefined = undefined;
+    let pokemonWeightToSet: number | undefined = undefined;
+    let typeDetailsToSet: { name: string; iconUrl: string }[] = [];
+    let statsToSet: { name: string; base_stat: number }[] = [];
 
     try {
-      const identificationResult: IdentifyPokemonOutput = await identifyPokemon({ photoDataUri: capturedImageUri });
-      
-      if (!identificationResult.isPokemon || !identificationResult.pokemonName) {
-        setError("No se pudo identificar un Pokémon en la imagen o falta el nombre.");
+      identificationResult = await identifyPokemon({ photoDataUri: currentCapturedImageUri });
+
+      if (identificationResult.isPokemon && identificationResult.pokemonName) {
+        setPokemonData({
+          isPokemon: true,
+          name: identificationResult.pokemonName,
+          id: undefined,
+          confidence: identificationResult.confidence,
+          pokemonType: identificationResult.pokemonType || [],
+          generation: identificationResult.generation,
+          description: identificationResult.description,
+          spriteUrl: undefined,
+          summary: undefined,
+          height: undefined,
+          weight: undefined,
+          typeDetails: [],
+          stats: [],
+        });
+
+        const [pokeApiResponse, summaryResultResponse] = await Promise.allSettled([
+          fetch(`https://pokeapi.co/api/v2/pokemon/${identificationResult.pokemonName.toLowerCase()}`),
+          summarizePokemonInfo({ pokemonName: identificationResult.pokemonName })
+        ]);
+
+        let spriteUrlToSet: string | undefined = undefined;
+        if (pokeApiResponse.status === 'fulfilled' && pokeApiResponse.value.ok) {
+          const pokeApiData = await pokeApiResponse.value.json();
+          spriteUrlToSet = pokeApiData?.sprites?.other?.showdown?.front_default || pokeApiData?.sprites?.front_default;
+          pokemonIdToSet = pokeApiData?.id;
+          pokemonHeightToSet = pokeApiData?.height;
+          pokemonWeightToSet = pokeApiData?.weight;
+
+          if (pokeApiData.types && Array.isArray(pokeApiData.types)) {
+            typeDetailsToSet = pokeApiData.types.map((typeObj: any) => {
+              const typeUrlParts = typeObj.type.url.split('/');
+              const typeId = typeUrlParts[typeUrlParts.length - 2]; 
+              return {
+                name: typeObj.type.name,
+                iconUrl: `/types/type-${typeId}.png` 
+              };
+            });
+          }
+
+          if (pokeApiData.stats && Array.isArray(pokeApiData.stats)) {
+            statsToSet = pokeApiData.stats.map((statObj: any) => ({
+              name: statObj.stat.name,
+              base_stat: statObj.base_stat,
+            }));
+          }
+
+        } else {
+          console.warn(`PokeAPI request failed for ${identificationResult.pokemonName}: ${pokeApiResponse.status === 'fulfilled' ? pokeApiResponse.value.status : 'Fetch error'}`);
+        }
+
+        let summaryText: string | undefined = undefined;
+        if (summaryResultResponse.status === 'fulfilled' && summaryResultResponse.value.summary) {
+          summaryText = summaryResultResponse.value.summary;
+          const textToSpeak = `${identificationResult.pokemonName}... ${summaryText}`;
+          speak(textToSpeak);
+        } else {
+            console.error("Error fetching summary:", summaryResultResponse.status === 'rejected' ? summaryResultResponse.reason : 'Summary was empty');
+            summaryText = identificationResult.description || "No se pudo cargar el resumen.";
+            const textToSpeak = `${identificationResult.pokemonName}. ${summaryText}`;
+            speak(textToSpeak);
+        }
+
+        setPokemonData(prev => prev ? {
+          ...prev,
+          id: pokemonIdToSet,
+          spriteUrl: spriteUrlToSet,
+          summary: summaryText,
+          height: pokemonHeightToSet,
+          weight: pokemonWeightToSet,
+          typeDetails: typeDetailsToSet,
+          stats: statsToSet,
+        } : {
+          isPokemon: true,
+          name: identificationResult.pokemonName,
+          id: pokemonIdToSet,
+          confidence: identificationResult.confidence,
+          pokemonType: identificationResult.pokemonType || [],
+          generation: identificationResult.generation,
+          description: identificationResult.description,
+          spriteUrl: spriteUrlToSet,
+          summary: summaryText,
+          height: pokemonHeightToSet,
+          weight: pokemonWeightToSet,
+          typeDetails: typeDetailsToSet,
+          stats: statsToSet,
+        });
+
+      } else {
+        const noPokemonErrorMsg = identificationResult?.description || "No se pudo identificar un Pokémon en la imagen.";
+        setError(noPokemonErrorMsg);
         setPokemonData({
             isPokemon: false,
-            confidence: identificationResult.confidence,
+            confidence: identificationResult?.confidence || 0,
             name: "Desconocido",
+            id: undefined,
             pokemonType: [],
             generation: "-",
-            description: "No se pudo determinar la información del Pokémon.",
-            summary: ""
+            description: noPokemonErrorMsg,
+            summary: "",
+            spriteUrl: "/MissingNo.png",
+            height: undefined,
+            weight: undefined,
+            typeDetails: [],
+            stats: [],
         });
-        setIsLoading(false);
-        toast({ title: "Identificación Fallida", description: "No parece ser un Pokémon o no se pudo identificar con certeza.", variant: "default" });
-        if (identificationResult.description && identificationResult.isPokemon === false) { 
-          speak(`Análisis: ${identificationResult.description}`);
-        } else {
-          speak("No se pudo identificar un Pokémon con la imagen proporcionada.");
-        }
-        return;
+        speak(noPokemonErrorMsg);
       }
-      
-      toast({ title: "¡Pokémon Identificado!", description: `Identificado como: ${identificationResult.pokemonName}` });
-
-      const summaryResult: SummarizePokemonInfoOutput = await summarizePokemonInfo({ pokemonName: identificationResult.pokemonName });
-
-      let textToSpeak = "";
-      if (summaryResult && summaryResult.summary) {
-          textToSpeak = `${identificationResult.pokemonName}... ${summaryResult.summary}`;
-      } else {
-          textToSpeak = `${identificationResult.pokemonName}. ${identificationResult.description || 'No se encontró descripción.'}`;
-          toast({ title: "Advertencia", description: "No se pudo obtener el resumen detallado del Pokémon.", variant: "default" });
-      }
-      speak(textToSpeak);
-      
-      const displayData: PokemonDisplayData = {
-        isPokemon: true,
-        name: identificationResult.pokemonName,
-        confidence: identificationResult.confidence,
-        pokemonType: identificationResult.pokemonType || [],
-        generation: identificationResult.generation,
-        description: identificationResult.description,
-        summary: summaryResult?.summary || "No se pudo cargar el resumen.", 
-      };
-      setPokemonData(displayData); 
 
     } catch (err) {
       console.error("Error in identification process:", err);
       const errorMessage = err instanceof Error ? err.message : "Ocurrió un error desconocido durante la identificación.";
       setError(errorMessage);
-      toast({ title: "Identificación Fallida", description: errorMessage, variant: "destructive" });
-      setPokemonData(prev => prev || { // Preserve previous data on error, or set default error state
-        isPokemon: !!prev?.isPokemon, // keep previous isPokemon status if available
-        confidence: prev?.confidence || 0, 
-        name: prev?.name || "Error", 
-        description: prev?.description || "Error en la identificación.",
+      setPokemonData(prev => ({
+        isPokemon: false,
+        confidence: prev?.confidence || (identificationResult?.confidence ?? 0),
+        name: prev?.name || "Error",
+        id: undefined,
+        description: prev?.description || errorMessage,
         pokemonType: prev?.pokemonType || [],
         generation: prev?.generation || "-",
-        summary: prev?.summary || ""
-      });
+        summary: prev?.summary || "",
+        spriteUrl: "/MissingNo.png",
+        height: undefined,
+        weight: undefined,
+        typeDetails: [],
+        stats: [],
+      }));
       speak("Error durante la identificación del Pokémon.");
     } finally {
-      setIsLoading(false); 
+      setIsApiLoading(false);
     }
-  }, [capturedImageUri, toast]);
+  }, [speak]);
 
   useEffect(() => {
-    if (identifyAfterCapture && capturedImageUri && !isLoading) {
-      handleIdentify();
-      setIdentifyAfterCapture(false); // Reset the trigger
+    if (capturedImageUri && identifyCallRef.current > 0) {
+      handleIdentify(capturedImageUri);
     }
-  }, [identifyAfterCapture, capturedImageUri, isLoading, handleIdentify]);
+  }, [capturedImageUri, handleIdentify]);
 
 
   if (orientation === 'unknown') {
@@ -224,15 +309,16 @@ export function PokedexShell() {
       </div>
     );
   }
-  
+
   const commonViewProps = {
       capturedImageUri,
       pokemonData: pokemonData as PokedexOpenViewPokemonData | null,
-      isLoading, 
+      isApiLoading,
+      showPokeballAnimation,
       error,
       onImageCapture: handleImageCapture,
       clearCapturedImage,
-      // onIdentify is no longer needed here as it's automatic
+      isSpeaking,
   };
 
   return (
@@ -249,8 +335,8 @@ export function PokedexShell() {
           {orientation === "portrait" ? (
             <PokedexClosedView />
           ) : (
-            <PokedexOpenView 
-              {...commonViewProps} 
+            <PokedexOpenView
+              {...commonViewProps}
             />
           )}
         </motion.div>

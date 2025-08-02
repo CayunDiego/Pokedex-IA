@@ -122,4 +122,17 @@
     /* 14px is approx 0.875rem, close to 1rem. -7px spread keeps it tighter. */
     box-shadow: inset 14px 14px 14px -7px rgba(0, 0, 0, 0.5);
   }
+
+  .animate-glow-blue-light {
+    animation: glow-blue-light 0.5s infinite;
+  }
+}
+
+@keyframes glow-blue-light {
+  0%, 100% {
+    box-shadow: none;
+  }
+  50% {
+    box-shadow: 0 0 12px 8px white;
+  }
 }
